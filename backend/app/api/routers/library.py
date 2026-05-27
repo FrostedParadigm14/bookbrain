@@ -79,7 +79,15 @@ async def upload_book(file: UploadFile = File(...)):
     # Save the file temporarily (or permanently into a data folder)
     upload_dir = os.path.join(os.getcwd(), "data", "uploads")
     os.makedirs(upload_dir, exist_ok=True)
-    temp_file_path = os.path.join(upload_dir, file.filename)
+    
+    # Sanitize the filename to strip special/glob-magic characters like [] which crash pypandoc
+    import re
+    clean_stem = re.sub(r'[^a-zA-Z0-9._\s-]', '', Path(file.filename).stem)
+    clean_stem = re.sub(r'\s+', ' ', clean_stem).strip()
+    if not clean_stem:
+        clean_stem = "uploaded_book_" + os.urandom(4).hex()
+    safe_filename = clean_stem + ext
+    temp_file_path = os.path.join(upload_dir, safe_filename)
     
     try:
         with open(temp_file_path, "wb") as buffer:

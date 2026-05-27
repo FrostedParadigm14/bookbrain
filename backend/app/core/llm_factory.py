@@ -2,6 +2,7 @@ import os
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_aws import ChatBedrock
+from langchain_openai import ChatOpenAI
 from app.core.config import settings
 
 class LLMFactory:
@@ -20,6 +21,16 @@ class LLMFactory:
                 google_api_key=api_key,
                 temperature=0,
                 convert_system_message_to_human=True
+            )
+            
+        elif target_provider.lower() == "openai":
+            api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OpenAI API key is missing. Set OPENAI_API_KEY.")
+            return ChatOpenAI(
+                model="gpt-4o-mini",
+                api_key=api_key,
+                temperature=0
             )
             
         elif target_provider.lower() == "claude":

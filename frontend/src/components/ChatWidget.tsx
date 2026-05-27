@@ -28,7 +28,7 @@ export default function ChatWidget({ selectedBooks }: ChatWidgetProps) {
       text: 'Good day! I am your Librarian. Ask me anything about the books in your collection, or beyond.',
     }
   ]);
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -47,14 +47,14 @@ export default function ChatWidget({ selectedBooks }: ChatWidgetProps) {
 
     const userText = inputText;
     const userMsg: Message = { id: Date.now().toString(), sender: 'user', text: userText };
-    
+
     // Add loading placeholder for bot
     const botLoadingId = (Date.now() + 1).toString();
-    const botLoadingMsg: Message = { 
-      id: botLoadingId, 
-      sender: 'bot', 
-      text: 'Consulting the archives and library agents...', 
-      isLoading: true 
+    const botLoadingMsg: Message = {
+      id: botLoadingId,
+      sender: 'bot',
+      text: 'Consulting the archives and library agents...',
+      isLoading: true
     };
 
     setMessages(prev => [...prev, userMsg, botLoadingMsg]);
@@ -111,7 +111,7 @@ export default function ChatWidget({ selectedBooks }: ChatWidgetProps) {
 
   return (
     <div className="chat-widget">
-      <div 
+      <div
         className={`chat-window ${isOpen ? 'open' : ''}`}
       >
         <div className="chat-header">
@@ -123,14 +123,14 @@ export default function ChatWidget({ selectedBooks }: ChatWidgetProps) {
           )}
           <button className="chat-close" onClick={toggleChat}>&times;</button>
         </div>
-        
+
         <div className="chat-messages">
           {messages.map((msg) => (
             <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
               <div className={`message ${msg.sender} ${msg.isLoading ? 'loading-pulse' : ''}`}>
                 {msg.text}
               </div>
-              
+
               {msg.trace && (
                 <div className="trace-container">
                   <details className="agent-trace-details">
@@ -144,14 +144,14 @@ export default function ChatWidget({ selectedBooks }: ChatWidgetProps) {
                           ))}
                         </div>
                       </div>
-                      
+
                       <div className="trace-metric-row">
                         <span className="trace-metric-label">Hallucination Shield:</span>
                         <span className={`trace-grade-badge ${msg.trace.hallucinationGrade.toLowerCase() === 'pass' ? 'pass' : 'fail'}`}>
                           🛡️ {msg.trace.hallucinationGrade}
                         </span>
                       </div>
-                      
+
                       <div className="trace-metric-row">
                         <span className="trace-metric-label">Confidence:</span>
                         <div className="trace-bar-container">
@@ -161,7 +161,7 @@ export default function ChatWidget({ selectedBooks }: ChatWidgetProps) {
                           <span className="trace-confidence-num">{Math.round(msg.trace.confidenceScore * 100)}%</span>
                         </div>
                       </div>
-                      
+
                       {msg.trace.sources && msg.trace.sources.length > 0 && (
                         <div className="trace-sources-section">
                           <h4 style={{ fontSize: '0.8rem', margin: '0.5rem 0 0.25rem 0', fontFamily: 'Inter, sans-serif' }}>
@@ -188,12 +188,12 @@ export default function ChatWidget({ selectedBooks }: ChatWidgetProps) {
           ))}
           <div ref={messagesEndRef} />
         </div>
-        
+
         <form className="chat-input-area" onSubmit={handleSend}>
-          <input 
-            type="text" 
+          <input
+            type="text"
             className="chat-input"
-            placeholder={selectedBooks.length > 0 ? "Ask selected books a question..." : "Ask a general question..."} 
+            placeholder={selectedBooks.length > 0 ? "Ask selected books a question..." : "Ask a general question..."}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
           />

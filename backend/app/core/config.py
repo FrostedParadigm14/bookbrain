@@ -6,9 +6,10 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # LLM Settings
-    ACTIVE_PROVIDER: str = "gemini" # 'gemini' or 'claude'
+    ACTIVE_PROVIDER: str = "gemini" # 'gemini', 'claude', or 'openai'
     GEMINI_API_KEY: Optional[str] = None
     GOOGLE_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_REGION: str = "us-east-1"
