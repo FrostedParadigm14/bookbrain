@@ -8,7 +8,7 @@ from app.services.ingestion import IngestionService
 
 def main():
     service = IngestionService()
-    epub_path = "data/uploads/Crouch, Blake - Recursion_ A Novel (2019, Crown_Archetype) - libgen.li.epub"
+    epub_path = "data/uploads/Crouch Blake - Recursion_ A Novel 2019 Crown_Archetype - libgen.li.epub"
     if not os.path.exists(epub_path):
         print(f"Error: {epub_path} not found.")
         return

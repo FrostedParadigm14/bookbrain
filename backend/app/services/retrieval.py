@@ -20,7 +20,10 @@ class RetrievalService:
     def get_embeddings(cls):
         """Returns the embedding model"""
         if cls._embeddings is None:
-            cls._embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+            cls._embeddings = HuggingFaceEmbeddings(
+                model_name=settings.EMBEDDING_MODEL_NAME,
+                model_kwargs=settings.EMBEDDING_MODEL_KWARGS
+            )
         return cls._embeddings
 
     @classmethod
@@ -44,7 +47,8 @@ class RetrievalService:
             print(f"[Retrieval] Applying filter expression: {filter_expr}")
 
         print(f"[Retrieval] Embedding query: '{query}'...")
-        query_vector = cls.get_embeddings().embed_query(query)
+        prefixed_query = f"{settings.EMBEDDING_QUERY_PREFIX}{query}"
+        query_vector = cls.get_embeddings().embed_query(prefixed_query)
         
         print(f"[Retrieval] Searching Milvus Lite...")
         search_res = client.search(
