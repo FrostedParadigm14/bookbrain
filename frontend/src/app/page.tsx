@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import ChatWidget from '../components/ChatWidget';
 import UploadModal from '../components/UploadModal';
+import BookDetailDrawer from '../components/BookDetailDrawer';
 
 interface Book {
   id: number;
@@ -9,6 +10,14 @@ interface Book {
   author: string;
   coverUrl: string;
   filePath: string;
+  genre?: string;
+  readingStatus?: string;
+  rating?: number;
+  notes?: string;
+  lastReadAt?: string;
+  pageCount?: number;
+  description?: string;
+  addedAt?: string;
 }
 
 interface DiagnosticsData {
@@ -26,6 +35,11 @@ interface DiagnosticsData {
     title: string;
     author: string;
   }>;
+  uniqueBooks: Array<{
+    filePath: string;
+    title: string;
+    author: string;
+  }>;
 }
 
 export default function Home() {
@@ -36,6 +50,8 @@ export default function Home() {
   const [isLoadingDiagnostics, setIsLoadingDiagnostics] = useState(false);
   const [diagnosticsData, setDiagnosticsData] = useState<DiagnosticsData | null>(null);
   const [isLoadingBooks, setIsLoadingBooks] = useState(true);
+  const [bookToDelete, setBookToDelete] = useState<Book | null>(null);
+  const [detailBook, setDetailBook] = useState<Book | null>(null);
 
   // Fetch books from real SQLite backend
   const fetchBooks = async () => {
@@ -73,11 +89,35 @@ export default function Home() {
     }
   };
 
+  const handleDeleteBook = async (bookId: number, filePath: string) => {
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/v1/books/${bookId}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        setBooks((prev) => prev.filter((b) => b.id !== bookId));
+        setSelectedBooks((prev) => prev.filter((p) => p !== filePath));
+        setBookToDelete(null);
+      } else {
+        const err = await response.json();
+        alert(`Failed to delete book: ${err.detail || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error deleting book:', error);
+      alert('Network error while deleting book.');
+    }
+  };
+
+  const [diagFilterBook, setDiagFilterBook] = useState<string>('');
+
   // Fetch Milvus Lite statistics
-  const fetchDiagnostics = async () => {
+  const fetchDiagnostics = async (filePath?: string) => {
     try {
       setIsLoadingDiagnostics(true);
-      const response = await fetch('http://127.0.0.1:8000/api/v1/diagnostics');
+      const url = filePath
+        ? `http://127.0.0.1:8000/api/v1/diagnostics?file_path=${encodeURIComponent(filePath)}`
+        : 'http://127.0.0.1:8000/api/v1/diagnostics';
+      const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
         setDiagnosticsData(data);
@@ -91,7 +131,20 @@ export default function Home() {
 
   const handleOpenDiagnostics = () => {
     setIsDiagnosticsOpen(true);
+    setDiagFilterBook('');
     fetchDiagnostics();
+  };
+
+  const handleOpenDiagnosticsForBook = (filePath: string) => {
+    setIsDiagnosticsOpen(true);
+    setDiagFilterBook(filePath);
+    fetchDiagnostics(filePath);
+    setDetailBook(null);
+  };
+
+  const handleDiagFilterChange = (filePath: string) => {
+    setDiagFilterBook(filePath);
+    fetchDiagnostics(filePath || undefined);
   };
 
   const formatBytes = (bytes: number) => {
@@ -167,6 +220,7 @@ export default function Home() {
           <section className="library-grid">
             {books.map((book) => {
               const isSelected = selectedBooks.includes(book.filePath);
+              const stars = book.rating ? '★'.repeat(book.rating) + '☆'.repeat(5 - book.rating) : null;
               return (
                 <div
                   key={book.id}
@@ -182,6 +236,34 @@ export default function Home() {
                         {book.title}
                       </div>
                     )}
+                    {/* Info / edit metadata button */}
+                    <button
+                      className="info-book-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetailBook(book);
+                      }}
+                      title="Edit Metadata"
+                    >
+                      ✏️
+                    </button>
+                    {/* Delete button */}
+                    <button
+                      className="delete-book-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setBookToDelete(book);
+                      }}
+                      title="Delete Book"
+                    >
+                      🗑️
+                    </button>
+                    {/* Reading status badge */}
+                    {book.readingStatus && book.readingStatus !== 'unread' && (
+                      <span className={`book-status-badge ${book.readingStatus}`}>
+                        {book.readingStatus}
+                      </span>
+                    )}
                     <div className="book-selection-overlay">
                       <div className="selection-badge">{isSelected ? '✓ Active' : 'Select'}</div>
                     </div>
@@ -189,6 +271,8 @@ export default function Home() {
                   <div className="book-info">
                     <div className="book-title">{book.title}</div>
                     <div className="book-author">{book.author}</div>
+                    {book.genre && <div style={{ fontSize: '0.75rem', color: 'var(--leather-light)', marginTop: '0.15rem' }}>{book.genre}</div>}
+                    {stars && <div className="book-card-stars">{stars}</div>}
                   </div>
                 </div>
               );
@@ -215,6 +299,24 @@ export default function Home() {
               <button className="modal-close" onClick={() => setIsDiagnosticsOpen(false)}>&times;</button>
             </div>
             
+            {/* Book filter selector */}
+            <div className="diag-filter-bar">
+              <label className="diag-filter-label" htmlFor="diag-book-select">📚 Filter by Book</label>
+              <select
+                id="diag-book-select"
+                className="diag-book-select"
+                value={diagFilterBook}
+                onChange={(e) => handleDiagFilterChange(e.target.value)}
+              >
+                <option value="">— All books ({diagnosticsData?.totalChunks ?? '…'} total chunks) —</option>
+                {(diagnosticsData?.uniqueBooks ?? []).map(b => (
+                  <option key={b.filePath} value={b.filePath}>
+                    {b.title} by {b.author}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {isLoadingDiagnostics ? (
               <div style={{ textAlign: 'center', padding: '3rem' }}>
                 <div className="upload-icon">⏳</div>
@@ -248,17 +350,21 @@ export default function Home() {
                 </div>
 
                 <h3 style={{ margin: '1.5rem 0 1rem 0', fontFamily: 'Merriweather, serif' }}>
-                  Indexed Chunks in Milvus Lite ({diagnosticsData.chunks.length})
+                  {diagFilterBook
+                    ? <>Chunks for <em>{diagnosticsData.uniqueBooks.find(b => b.filePath === diagFilterBook)?.title ?? books.find(b => b.filePath === diagFilterBook)?.title ?? 'selected book'}</em> ({diagnosticsData.chunks.length})</>
+                    : <>All Indexed Chunks ({diagnosticsData.chunks.length})</>}
                 </h3>
                 <div className="chunks-list">
                   {diagnosticsData.chunks.length === 0 ? (
                     <p style={{ color: 'var(--leather-light)', fontStyle: 'italic', padding: '1rem 0' }}>
-                      No vector chunks stored yet. Upload a book to populate the Milvus database.
+                      {diagFilterBook
+                        ? 'No chunks found for this book. It may not have been ingested yet.'
+                        : 'No vector chunks stored yet. Upload a book to populate the Milvus database.'}
                     </p>
                   ) : (
                     diagnosticsData.chunks.map((chunk) => (
                       <div key={chunk.id} className="chunk-card">
-                        <p className="chunk-text">"{chunk.text}"</p>
+                        <p className="chunk-text">&ldquo;{chunk.text}&rdquo;</p>
                         <div className="chunk-meta">
                           <span>📖 {chunk.title} ({chunk.author})</span>
                           <span>Page {chunk.page}</span>
@@ -274,6 +380,43 @@ export default function Home() {
             )}
           </div>
         </div>
+      )}
+
+      {bookToDelete && (
+        <div className="modal-overlay" onClick={() => setBookToDelete(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setBookToDelete(null)}>&times;</button>
+            <h2 style={{ marginBottom: '1rem', color: 'var(--accent-red)' }}>Confirm Deletion</h2>
+            <p>
+              Are you sure you want to remove <strong>{bookToDelete.title}</strong> by <strong>{bookToDelete.author}</strong>?
+            </p>
+            <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--leather-light)' }}>
+              This will permanently delete the physical file, purge all its vector chunks from the Milvus database, and remove its metadata.
+            </p>
+            <div className="confirmation-card-actions">
+              <button className="btn-secondary" onClick={() => setBookToDelete(null)}>
+                Cancel
+              </button>
+              <button 
+                className="btn-danger" 
+                onClick={() => handleDeleteBook(bookToDelete.id, bookToDelete.filePath)}
+              >
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailBook && (
+        <BookDetailDrawer
+          book={detailBook}
+          onClose={() => setDetailBook(null)}
+          onSave={(updated) => {
+            setBooks(prev => prev.map(b => b.id === updated.id ? { ...b, ...updated } : b));
+          }}
+          onViewDiagnostics={(filePath) => handleOpenDiagnosticsForBook(filePath)}
+        />
       )}
 
       <ChatWidget selectedBooks={selectedBooks} />
