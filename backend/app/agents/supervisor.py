@@ -7,18 +7,26 @@ class SupervisorAgent:
         # We initialize dynamically in __call__ to support dynamic providers,
         # but compiling logic is here.
         self.prompt = PromptTemplate.from_template(
-            """You are a routing supervisor. Your job is to decide whether to route the user's query about books to the local RAG agent (which searches through uploaded personal PDFs) or an external agent (which searches the Google Books API).
-            
-            If the query seems like it's asking about personal notes, specific uploaded books, or internal knowledge, route to 'rag'.
-            If the query is asking for general information about a book, publishing details, broad summaries, or recommendations not specific to personal notes, route to 'external'.
+            """You are a routing supervisor. Your job is to decide whether to route the user's query about books to:
+            1. 'rag': For queries asking about personal notes, specific uploaded books, or searching the contents of their uploaded PDFs/EPUBs.
+            2. 'external': For general literature questions, suggestions, broad publishing details, or book recommendations not related to their specific personal library.
+            3. 'bookkeeping': For requests to manage, update, or edit book records (like fetching cover images, updating metadata, or executing bookkeeping tasks).
             
             Query: {query}
             
-            Format your response as a single word: either "rag" or "external".
+            Format your response as a single word: either "rag", "external", or "bookkeeping".
             """
         )
 
     def route(self, state: GraphState) -> GraphState:
+        # Check if this is a cover/bookkeeping request first for extreme robustness
+        query_lower = state["query"].lower()
+        if any(kw in query_lower for kw in ["cover", "cover image", "find cover", "update cover", "fetch cover", "bookkeeper", "bookkeeping", "update db", "update database"]):
+            print("[Supervisor] Detected bookkeeping request keyword. Routing directly to BOOKKEEPING.")
+            return {
+                "agent_path": ["Supervisor", "BOOKKEEPING_AGENT"],
+            }
+
         # If user explicitly selected books, force RAG routing
         if state.get("selected_books"):
             print("[Supervisor] Selected books provided. Routing directly to RAG.")
@@ -33,7 +41,7 @@ class SupervisorAgent:
         decision = response.content.strip().lower()
         
         # Default to RAG if parsing fails
-        if decision not in ["rag", "external"]:
+        if decision not in ["rag", "external", "bookkeeping"]:
             decision = "rag"
             
         print(f"[Supervisor] Routing query to: {decision}")

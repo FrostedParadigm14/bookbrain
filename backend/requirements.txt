@@ -34,6 +34,7 @@ marshmallow==3.21.3
 sentence-transformers==3.0.1
 transformers==4.41.2
 torch==2.3.1
+einops>=0.8.0
 
 # Document Parsers
 pypdf==6.9.2
