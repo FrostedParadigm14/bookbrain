@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     GOOGLE_API_KEY: Optional[str] = None
     GOOGLE_BOOKS_API_KEY: Optional[str] = None
-    OPENAI_API_KEY: Optional[str] = None
     OPENCODE_API_KEY: Optional[str] = None
     OPENCODE_BASE_URL: Optional[str] = None
     OPENCODE_MODEL: str = "deepseek-v4-flash"
@@ -19,9 +18,6 @@ class Settings(BaseSettings):
     GDRIVE_API_KEY: Optional[str] = None
     GDRIVE_SERVICE_ACCOUNT_FILE: Optional[str] = None
     GDRIVE_OAUTH_TOKEN: Optional[str] = None
-    AWS_ACCESS_KEY_ID: Optional[str] = None
-    AWS_SECRET_ACCESS_KEY: Optional[str] = None
-    AWS_REGION: str = "us-east-1"
     
     # Retrieval
     CHUNK_SIZE: int = 1000

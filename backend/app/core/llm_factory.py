@@ -22,33 +22,6 @@ class LLMFactory:
                 temperature=0,
                 convert_system_message_to_human=True
             )
-            
-        elif target_provider.lower() == "openai":
-            api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise ValueError("OpenAI API key is missing. Set OPENAI_API_KEY.")
-            return ChatOpenAI(
-                model="gpt-4o-mini",
-                api_key=api_key,
-                temperature=0
-            )
-            
-        elif target_provider.lower() == "claude":
-            # Standard AWS environment variables or from settings
-            aws_access_key = settings.AWS_ACCESS_KEY_ID or os.getenv("AWS_ACCESS_KEY_ID")
-            aws_secret_key = settings.AWS_SECRET_ACCESS_KEY or os.getenv("AWS_SECRET_ACCESS_KEY")
-            region = settings.AWS_REGION or os.getenv("AWS_REGION", "us-east-1")
-            
-            if not aws_access_key or not aws_secret_key:
-                raise ValueError("AWS credentials missing for Bedrock.")
-                
-            return ChatBedrock(
-                model_id="anthropic.claude-3-sonnet-20240229-v1:0",
-                aws_access_key_id=aws_access_key,
-                aws_secret_access_key=aws_secret_key,
-                region_name=region,
-                model_kwargs={"temperature": 0}
-            )
 
         elif target_provider.lower() == "opencode":
             api_key = settings.OPENCODE_API_KEY or os.getenv("OPENCODE_API_KEY")
