@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import json
+from typing import Optional
 from pathlib import Path
 from langchain_community.document_loaders import PyPDFLoader, UnstructuredEPubLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -114,29 +115,114 @@ class IngestionService:
                 print(f"[DB Migration] Added column '{col}' to books table.")
         self.conn.commit()
 
-    def _extract_metadata(self, first_chunk_text: str) -> dict:
-        """Uses LLM to extract JSON metadata from the first few pages."""
+    def _extract_embedded_cover(self, file_path: str) -> Optional[str]:
+        """Extracts the cover image directly embedded in an EPUB or PDF file and saves to data/covers/."""
+        try:
+            covers_dir = os.path.join(os.getcwd(), "data", "covers")
+            os.makedirs(covers_dir, exist_ok=True)
+            stem = Path(file_path).stem
+            ext = Path(file_path).suffix.lower()
+
+            if ext == '.epub':
+                import zipfile
+                with zipfile.ZipFile(file_path, 'r') as z:
+                    file_list = z.namelist()
+                    # 1. Look for images with 'cover' in filename
+                    image_files = [f for f in file_list if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+                    cover_candidates = [f for f in image_files if 'cover' in f.lower()]
+                    
+                    target_file = cover_candidates[0] if cover_candidates else (image_files[0] if image_files else None)
+                    if target_file:
+                        img_bytes = z.read(target_file)
+                        img_ext = Path(target_file).suffix.lower() or ".jpg"
+                        out_name = f"cover_{stem}_{os.urandom(4).hex()}{img_ext}"
+                        out_path = os.path.join(covers_dir, out_name)
+                        with open(out_path, 'wb') as f:
+                            f.write(img_bytes)
+                        print(f"[Cover Extractor] Extracted embedded EPUB cover image: {out_path}")
+                        return f"http://127.0.0.1:8000/static/covers/{out_name}"
+
+            elif ext == '.pdf':
+                try:
+                    import pypdf
+                    reader = pypdf.PdfReader(file_path)
+                    if reader.pages:
+                        page = reader.pages[0]
+                        for count, image_file_object in enumerate(page.images):
+                            img_bytes = image_file_object.data
+                            img_ext = Path(image_file_object.name).suffix.lower() or ".jpg"
+                            out_name = f"cover_{stem}_{os.urandom(4).hex()}{img_ext}"
+                            out_path = os.path.join(covers_dir, out_name)
+                            with open(out_path, 'wb') as f:
+                                f.write(img_bytes)
+                            print(f"[Cover Extractor] Extracted embedded PDF page 1 image: {out_path}")
+                            return f"http://127.0.0.1:8000/static/covers/{out_name}"
+                except Exception as pe:
+                    print(f"[Cover Extractor] PDF image extraction info: {pe}")
+
+        except Exception as e:
+            print(f"[Cover Extractor] Error extracting embedded cover: {e}")
+
+        return None
+
+    def _extract_metadata(self, sample_text: str) -> dict:
+        """Uses LLM to extract JSON metadata from the first few pages of text, then enriches via Google Books & Open Library."""
         prompt = f"""
-        Extract the book metadata from the following text (which is the beginning of a document):
-        Return ONLY valid JSON with keys "title", "author",. If unknown, use "Unknown".
-        
-        Text:
-        {first_chunk_text[:3000]}
+        You are an expert librarian AI. Analyze the following opening text from a book or document and extract metadata:
+        Return ONLY valid JSON with keys:
+        - "title": Title of the book (string)
+        - "author": Author name(s) (string)
+        - "genre": Primary genre or topic (string)
+        - "description": A concise 2-3 sentence summary of what this book is about based on the text.
+        - "search_query": Keywords to search Google Books for official metadata (string)
+
+        If a specific field cannot be determined, use your best estimation or "Unknown".
+
+        Opening Text:
+        {sample_text[:4500]}
         """
+        extracted = {"title": "Unknown Document", "author": "Unknown Author", "genre": "Non-Fiction", "description": ""}
         try:
             response = self.llm.invoke(prompt)
-            # Simple crude fallback parser (Ideally use structured output)
             content = response.content.strip()
-            # If the LLM returned markdown code blocks, strip them
             if content.startswith("```json"):
-                content = content[7:-3]
-            return json.loads(content)
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+            extracted = json.loads(content)
         except Exception as e:
-            print(f"Error extracting metadata: {e}")
-            return {"title": "Unknown Document", "author": "Unknown Author"}
+            print(f"[Ingestion] Error extracting AI metadata from text: {e}")
+
+        # Enrich using Google Books / Open Library API searching
+        title = extracted.get("title") or "Unknown Document"
+        author = extracted.get("author") or "Unknown Author"
+
+        try:
+            from app.services.external_api import GoogleBooksService
+            ext_meta = GoogleBooksService.find_cover_and_metadata(title, author)
+            if ext_meta:
+                if ext_meta.get("cover_url"):
+                    extracted["google_cover_url"] = ext_meta["cover_url"]
+                if ext_meta.get("description"):
+                    extracted["description"] = ext_meta["description"]
+                if ext_meta.get("genre") and ext_meta["genre"] != "Unknown":
+                    extracted["genre"] = ext_meta["genre"]
+                if ext_meta.get("page_count"):
+                    extracted["page_count"] = ext_meta["page_count"]
+                if ext_meta.get("title") and title.lower() in ["unknown", "unknown document"]:
+                    extracted["title"] = ext_meta["title"]
+                if ext_meta.get("author") and author.lower() in ["unknown", "unknown author"]:
+                    extracted["author"] = ext_meta["author"]
+        except Exception as e:
+            print(f"[Ingestion] Error enriching metadata via external APIs: {e}")
+
+        return extracted
 
     def ingest_document(self, file_path: str):
-        """Loads a PDF or EPUB, extracts metadata, chunks it, and adds to FAISS."""
+        """Loads a PDF or EPUB, extracts AI metadata, enriches details, chunks text, and stores vectors in Milvus Lite."""
         print(f"Loading Document from {file_path}...")
         
         ext = Path(file_path).suffix.lower()
@@ -154,21 +240,41 @@ class IngestionService:
         docs = loader.load()
         if not docs:
             print("No content found.")
-            return
-            
-        print("Extracting metadata...")
-        metadata = self._extract_metadata(docs[0].page_content)
-        title = metadata.get("title", Path(file_path).stem)
-        author = metadata.get("author", "Unknown")
+            return None
+
+        # 1. Try to extract embedded cover directly from file (page 1 / zip cover)
+        embedded_cover = self._extract_embedded_cover(file_path)
+
+        print("Extracting AI metadata & fetching external book details from first pages...")
+        sample_text = "\n\n".join([doc.page_content for doc in docs[:5]])
+        metadata = self._extract_metadata(sample_text)
         
-        print(f"Storing metadata: {title} by {author}")
-        # Insert or ignore into sqlite DB — populate added_at explicitly (SQLite ALTER TABLE can't use datetime() as default)
+        title = metadata.get("title") or Path(file_path).stem
+        author = metadata.get("author") or "Unknown Author"
+        # Prioritize embedded cover image from file itself; fallback to Google Books API cover if unavailable
+        cover_url = embedded_cover or metadata.get("google_cover_url") or metadata.get("cover_url", "")
+        genre = metadata.get("genre", "General")
+        description = metadata.get("description", "")
+        page_count = metadata.get("page_count", len(docs))
+        
+        print(f"Storing metadata: '{title}' by '{author}' (Cover: {'Embedded' if embedded_cover else ('Google Books' if cover_url else 'None')})")
+        
         from datetime import datetime, timezone
         now_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-        self.conn.execute(
-            "INSERT OR IGNORE INTO books (file_path, title, author, cover_url, added_at) VALUES (?, ?, ?, ?, ?)",
-            (file_path, title, author, "", now_utc)
-        )
+        
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM books WHERE file_path = ?", (file_path,))
+        existing = cursor.fetchone()
+        if existing:
+            self.conn.execute(
+                "UPDATE books SET title = ?, author = ?, cover_url = ?, genre = ?, description = ?, page_count = ? WHERE file_path = ?",
+                (title, author, cover_url, genre, description, page_count, file_path)
+            )
+        else:
+            self.conn.execute(
+                "INSERT INTO books (file_path, title, author, cover_url, genre, description, page_count, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (file_path, title, author, cover_url, genre, description, page_count, now_utc)
+            )
         self.conn.commit()
 
         print("Splitting sentences...")
@@ -196,4 +302,11 @@ class IngestionService:
         )
             
         print("Ingestion complete.")
-        return {"title": title, "author": author}
+        return {
+            "title": title,
+            "author": author,
+            "cover_url": cover_url,
+            "genre": genre,
+            "description": description,
+            "page_count": page_count
+        }

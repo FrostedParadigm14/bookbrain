@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     OPENCODE_API_KEY: Optional[str] = None
     OPENCODE_BASE_URL: Optional[str] = None
     OPENCODE_MODEL: str = "deepseek-v4-flash"
+    
+    # Google Drive Integration
+    GDRIVE_API_KEY: Optional[str] = None
+    GDRIVE_SERVICE_ACCOUNT_FILE: Optional[str] = None
+    GDRIVE_OAUTH_TOKEN: Optional[str] = None
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_REGION: str = "us-east-1"

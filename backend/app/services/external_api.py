@@ -148,9 +148,11 @@ class GoogleBooksService:
                 search_title = search_title.split(" - ")[0]
             search_title = search_title.strip()
 
-            # Check for GCP-format API key in settings
-            api_key = settings.GOOGLE_BOOKS_API_KEY
-            if not api_key and settings.GOOGLE_API_KEY and settings.GOOGLE_API_KEY.startswith("AIzaSy"):
+            # Check for valid GCP-format API key starting with AIzaSy
+            api_key = None
+            if settings.GOOGLE_BOOKS_API_KEY and settings.GOOGLE_BOOKS_API_KEY.startswith("AIzaSy"):
+                api_key = settings.GOOGLE_BOOKS_API_KEY
+            elif settings.GOOGLE_API_KEY and settings.GOOGLE_API_KEY.startswith("AIzaSy"):
                 api_key = settings.GOOGLE_API_KEY
                 
             query = f'intitle:"{search_title}" inauthor:"{author}"'
@@ -160,9 +162,9 @@ class GoogleBooksService:
             }
             if api_key:
                 params["key"] = api_key
-                print("[Google Books API] Using configured API key for volume search.")
+                print("[Google Books API] Using configured GCP API key for volume search.")
             else:
-                print("[Google Books API] Using public access (no GCP key found/valid).")
+                print("[Google Books API] Using keyless search / Open Library fallback.")
                 
             response = requests.get(cls.BASE_URL, params=params, timeout=10)
             response.raise_for_status()

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse
 import sqlite3
 import os
 import shutil
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from app.services.ingestion import IngestionService
+from app.services.gdrive import GoogleDriveService
 from app.core.config import settings
 from pymilvus import MilvusClient
 
@@ -36,6 +38,9 @@ class BookUpdateRequest(BaseModel):
     lastReadAt: Optional[str] = None
     pageCount: Optional[int] = None
     description: Optional[str] = None
+
+class GDriveImportRequest(BaseModel):
+    gdriveUrl: str
 
 class ChunkSchema(BaseModel):
     id: str
@@ -191,6 +196,82 @@ def update_book_metadata(book_id: int, update: BookUpdateRequest):
         if conn:
             conn.close()
 
+@router.post("/books/{book_id}/refetch-metadata", response_model=BookResponse)
+def refetch_book_metadata(book_id: int):
+    """Refetch fresh book metadata and cover art from Google Books API & Open Library API."""
+    db_path = _get_db_path()
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="Library database not found.")
+    
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_path, title, author FROM books WHERE id = ?", (book_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Book not found.")
+            
+        file_path = row['file_path']
+        current_title = row['title']
+        current_author = row['author']
+        
+        # Extract AI metadata from first pages
+        metadata = {}
+        if file_path and os.path.exists(file_path):
+            try:
+                ext = Path(file_path).suffix.lower()
+                if ext == '.pdf':
+                    from langchain_community.document_loaders import PyPDFLoader
+                    loader = PyPDFLoader(file_path)
+                    docs = loader.load()
+                    if docs:
+                        sample_text = "\n\n".join([d.page_content for d in docs[:5]])
+                        metadata = ingestion_service._extract_metadata(sample_text)
+                elif ext == '.epub':
+                    from langchain_community.document_loaders import UnstructuredEPubLoader
+                    loader = UnstructuredEPubLoader(file_path)
+                    docs = loader.load()
+                    if docs:
+                        sample_text = "\n\n".join([d.page_content for d in docs[:5]])
+                        metadata = ingestion_service._extract_metadata(sample_text)
+            except Exception as e:
+                print(f"[Refetch Metadata] Error reading file text: {e}")
+
+        # Search Google Books API + Open Library API
+        from app.services.external_api import GoogleBooksService
+        search_title = metadata.get("title") or current_title
+        search_author = metadata.get("author") or current_author
+        ext_meta = GoogleBooksService.find_cover_and_metadata(search_title, search_author)
+        
+        title = ext_meta.get("title") or metadata.get("title") or current_title
+        author = ext_meta.get("author") or metadata.get("author") or current_author
+        cover_url = ext_meta.get("cover_url") or metadata.get("cover_url") or ""
+        genre = ext_meta.get("genre") or metadata.get("genre")
+        description = ext_meta.get("description") or metadata.get("description")
+        page_count = ext_meta.get("page_count") or metadata.get("page_count")
+        
+        # Update SQLite DB
+        cursor.execute(
+            "UPDATE books SET title = ?, author = ?, cover_url = ?, genre = ?, description = ?, page_count = ? WHERE id = ?",
+            (title, author, cover_url, genre, description, page_count, book_id)
+        )
+        conn.commit()
+        
+        cursor.execute(
+            "SELECT id, title, author, cover_url, file_path, genre, reading_status, rating, notes, last_read_at, page_count, description, added_at FROM books WHERE id = ?",
+            (book_id,)
+        )
+        return _row_to_book(cursor.fetchone())
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error refetching metadata: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
 
 
 @router.delete("/books/{book_id}")
@@ -284,16 +365,108 @@ async def upload_book(file: UploadFile = File(...)):
         if not metadata:
             raise HTTPException(status_code=500, detail="Failed to parse document.")
             
-        # Return the new book data for the UI
-        return {
-            "id": int(os.urandom(2).hex(), 16),
-            "title": metadata.get("title", file.filename),
-            "author": metadata.get("author", "Unknown Author"),
-            "coverUrl": metadata.get("cover_url", ""),
-            "filePath": temp_file_path
-        }
+        # Fetch the newly inserted record from SQLite so the returned ID matches the DB primary key
+        db_path = _get_db_path()
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, title, author, cover_url, file_path, genre, reading_status, "
+            "rating, notes, last_read_at, page_count, description, added_at FROM books WHERE file_path = ?",
+            (temp_file_path,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return _row_to_book(row)
+        else:
+            return {
+                "id": 1,
+                "title": metadata.get("title", file.filename),
+                "author": metadata.get("author", "Unknown Author"),
+                "coverUrl": metadata.get("cover_url", ""),
+                "filePath": temp_file_path
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error uploading and parsing file: {str(e)}")
+
+@router.get("/books/{book_id}/file")
+@router.get("/books/{book_id}/file/{filename}")
+def get_book_file(book_id: int, filename: Optional[str] = None):
+    """Serves the raw book file bytes (EPUB/PDF) for the web reader."""
+    db_path = _get_db_path()
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="Library database not found.")
+    
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_path, title FROM books WHERE id = ?", (book_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Book not found.")
+            
+        file_path = row[0]
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"Book file not found on disk at {file_path}")
+            
+        ext = Path(file_path).suffix.lower()
+        media_type = "application/epub+zip" if ext == ".epub" else "application/pdf"
+        
+        return FileResponse(
+            path=file_path,
+            media_type=media_type,
+            filename=os.path.basename(file_path),
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@router.post("/gdrive/import")
+def import_from_gdrive(request: GDriveImportRequest):
+    """Import and ingest an EPUB or PDF from a Google Drive URL (public or restricted)."""
+    if not request.gdriveUrl or not request.gdriveUrl.strip():
+        raise HTTPException(status_code=400, detail="Google Drive URL is required.")
+        
+    try:
+        # Download file using GoogleDriveService
+        file_path = GoogleDriveService.download_file(request.gdriveUrl)
+        
+        # Trigger ingestion
+        metadata = ingestion_service.ingest_document(file_path)
+        if not metadata:
+            raise HTTPException(status_code=500, detail="Failed to parse downloaded document.")
+            
+        # Fetch newly created SQLite record
+        db_path = _get_db_path()
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, title, author, cover_url, file_path, genre, reading_status, rating, notes, last_read_at, page_count, description, added_at FROM books WHERE file_path = ?", (file_path,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return _row_to_book(row)
+        else:
+            return {
+                "id": int(os.urandom(2).hex(), 16),
+                "title": metadata.get("title", "Imported GDrive Book"),
+                "author": metadata.get("author", "Unknown Author"),
+                "coverUrl": "",
+                "filePath": file_path
+            }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Google Drive import error: {str(e)}")
 
 @router.get("/diagnostics", response_model=DiagnosticsResponse)
 def get_diagnostics(file_path: Optional[str] = None):

@@ -35,6 +35,12 @@ def create_app() -> FastAPI:
     app.include_router(query.router, prefix=settings.API_V1_STR, tags=["Query"])
     app.include_router(library.router, prefix=settings.API_V1_STR, tags=["Library"])
 
+    # Static files for extracted book covers
+    from fastapi.staticfiles import StaticFiles
+    covers_dir = os.path.join(os.getcwd(), "data", "covers")
+    os.makedirs(covers_dir, exist_ok=True)
+    app.mount("/static/covers", StaticFiles(directory=covers_dir), name="covers")
+
     return app
 
 app = create_app()
