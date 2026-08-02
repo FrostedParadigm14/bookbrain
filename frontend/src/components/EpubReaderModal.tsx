@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 
 // Dynamically import ReactReader to avoid SSR window issues
@@ -11,14 +11,18 @@ const ReactReaderComponent = dynamic(
       location,
       locationChanged,
       tocChanged,
+      theme,
       themeStyles,
     }: {
       url: string | ArrayBuffer;
       location: string | number;
       locationChanged: (loc: string | number) => void;
       tocChanged?: (toc: any[]) => void;
+      theme: 'dark' | 'light' | 'sepia';
       themeStyles: { bg: string; color: string };
     }) {
+      const renditionRef = useRef<any>(null);
+
       const customStyles = {
         ...ReactReaderStyle,
         container: {
@@ -35,6 +39,13 @@ const ReactReaderComponent = dynamic(
         },
       };
 
+      // Update rendition theme dynamically when theme state changes
+      useEffect(() => {
+        if (renditionRef.current) {
+          renditionRef.current.themes.select(theme);
+        }
+      }, [theme]);
+
       return (
         <ReactReader
           url={url}
@@ -43,14 +54,31 @@ const ReactReaderComponent = dynamic(
           tocChanged={tocChanged}
           readerStyles={customStyles}
           getRendition={(rendition) => {
-            rendition.hooks.content.register((contents: any) => {
-              contents.addStylesheetRules({
-                'body, p, span, div, h1, h2, h3, h4, h5, h6, li, a, td, th': {
-                  'color': `${themeStyles.color} !important`,
-                  'background-color': 'transparent !important',
-                },
-              });
+            renditionRef.current = rendition;
+
+            // Register distinct themes with explicit font color contrast
+            rendition.themes.register('dark', {
+              'body, p, span, div, h1, h2, h3, h4, h5, h6, li, a, td, th': {
+                'color': '#ffffff !important',
+                'background-color': 'transparent !important',
+              },
             });
+
+            rendition.themes.register('light', {
+              'body, p, span, div, h1, h2, h3, h4, h5, h6, li, a, td, th': {
+                'color': '#000000 !important',
+                'background-color': 'transparent !important',
+              },
+            });
+
+            rendition.themes.register('sepia', {
+              'body, p, span, div, h1, h2, h3, h4, h5, h6, li, a, td, th': {
+                'color': '#2d1e0f !important',
+                'background-color': 'transparent !important',
+              },
+            });
+
+            rendition.themes.select(theme);
           }}
         />
       );
@@ -137,12 +165,12 @@ export default function EpubReaderModal({ book, onClose }: EpubReaderModalProps)
   const getThemeStyles = () => {
     switch (theme) {
       case 'light':
-        return { bg: '#ffffff', color: '#111111' };
+        return { bg: '#ffffff', color: '#000000' };
       case 'sepia':
-        return { bg: '#f4ecd8', color: '#5b4636' };
+        return { bg: '#f4ecd8', color: '#2d1e0f' };
       case 'dark':
       default:
-        return { bg: '#141414', color: '#e0e0e0' };
+        return { bg: '#141414', color: '#ffffff' };
     }
   };
 
@@ -280,6 +308,7 @@ export default function EpubReaderModal({ book, onClose }: EpubReaderModalProps)
               url={epubBuffer}
               location={location}
               locationChanged={locationChanged}
+              theme={theme}
               themeStyles={themeStyles}
             />
           </div>
