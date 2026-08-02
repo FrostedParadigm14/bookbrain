@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import ChatWidget from '../components/ChatWidget';
 import UploadModal from '../components/UploadModal';
 import BookDetailDrawer from '../components/BookDetailDrawer';
+import EpubReaderModal from '../components/EpubReaderModal';
 
 interface Book {
   id: number;
@@ -52,6 +53,8 @@ export default function Home() {
   const [isLoadingBooks, setIsLoadingBooks] = useState(true);
   const [bookToDelete, setBookToDelete] = useState<Book | null>(null);
   const [detailBook, setDetailBook] = useState<Book | null>(null);
+  const [readerBook, setReaderBook] = useState<Book | null>(null);
+  const [isSelectMode, setIsSelectMode] = useState(false);
 
   // Fetch books from real SQLite backend
   const fetchBooks = async () => {
@@ -182,21 +185,37 @@ export default function Home() {
 
       <main className="container">
         <section className="header-section">
-          <h1>AI-Powered Digital Library</h1>
-          <p>
-            Explore your collection, upload PDFs or EPUBs into **Milvus Lite**,
-            and query specific books using the Librarian Agent.
-          </p>
+          <h1>Digital Library</h1>
         </section>
 
         {books.length > 0 && (
-          <div className="selection-toolbar">
-            <button className="btn-text" onClick={handleSelectAll}>
-              {selectedBooks.length === books.length ? 'Clear Selection' : 'Select All Books'}
-            </button>
-            <span style={{ color: 'var(--leather-light)', fontSize: '0.9rem' }}>
-              ({selectedBooks.length} of {books.length} books selected as agent search context)
-            </span>
+          <div className="selection-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', padding: '0.85rem 1.25rem', background: 'rgba(30, 30, 30, 0.6)', borderRadius: '10px', border: '1px solid var(--border-color, #333)', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '0.6rem', fontWeight: 600, fontSize: '0.92rem', color: '#f3f4f6', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={isSelectMode}
+                  onChange={(e) => setIsSelectMode(e.target.checked)}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#3b82f6' }}
+                />
+                <span>🎯 Select Books Mode (Agent RAG Context Filter)</span>
+              </label>
+              {isSelectMode && (
+                <span style={{ fontSize: '0.85rem', color: 'var(--leather-light, #a1a1aa)' }}>
+                  ({selectedBooks.length} of {books.length} selected for AI context)
+                </span>
+              )}
+            </div>
+
+            {isSelectMode ? (
+              <button className="btn-text" onClick={handleSelectAll} style={{ fontSize: '0.85rem' }}>
+                {selectedBooks.length === books.length ? 'Clear Selection' : 'Select All Books'}
+              </button>
+            ) : (
+              <span style={{ fontSize: '0.85rem', color: '#a1a1aa' }}>
+                💡 Click any book to read in e-reader view. Turn ON select mode to filter AI search context.
+              </span>
+            )}
           </div>
         )}
 
@@ -224,8 +243,15 @@ export default function Home() {
               return (
                 <div
                   key={book.id}
-                  className={`book-card ${isSelected ? 'selected' : ''}`}
-                  onClick={() => handleToggleBook(book.filePath)}
+                  className={`book-card ${isSelectMode && isSelected ? 'selected' : ''}`}
+                  onClick={() => {
+                    if (isSelectMode) {
+                      handleToggleBook(book.filePath);
+                    } else {
+                      setReaderBook(book);
+                    }
+                  }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className="book-cover-wrapper">
                     {book.coverUrl ? (
@@ -236,18 +262,17 @@ export default function Home() {
                         {book.title}
                       </div>
                     )}
-                    {/* Info / edit metadata button */}
+                    {/* Hover controls: Edit & Delete */}
                     <button
                       className="info-book-btn"
                       onClick={(e) => {
                         e.stopPropagation();
                         setDetailBook(book);
                       }}
-                      title="Edit Metadata"
+                      title="Edit Book Details & Metadata"
                     >
                       ✏️
                     </button>
-                    {/* Delete button */}
                     <button
                       className="delete-book-btn"
                       onClick={(e) => {
@@ -264,9 +289,11 @@ export default function Home() {
                         {book.readingStatus}
                       </span>
                     )}
-                    <div className="book-selection-overlay">
-                      <div className="selection-badge">{isSelected ? '✓ Active' : 'Select'}</div>
-                    </div>
+                    {isSelectMode && (
+                      <div className="book-selection-overlay">
+                        <div className="selection-badge">{isSelected ? '✓ Selected' : 'Select'}</div>
+                      </div>
+                    )}
                   </div>
                   <div className="book-info">
                     <div className="book-title">{book.title}</div>
@@ -298,7 +325,7 @@ export default function Home() {
               <h2>Milvus Lite DB Explorer</h2>
               <button className="modal-close" onClick={() => setIsDiagnosticsOpen(false)}>&times;</button>
             </div>
-            
+
             {/* Book filter selector */}
             <div className="diag-filter-bar">
               <label className="diag-filter-label" htmlFor="diag-book-select">📚 Filter by Book</label>
@@ -397,8 +424,8 @@ export default function Home() {
               <button className="btn-secondary" onClick={() => setBookToDelete(null)}>
                 Cancel
               </button>
-              <button 
-                className="btn-danger" 
+              <button
+                className="btn-danger"
                 onClick={() => handleDeleteBook(bookToDelete.id, bookToDelete.filePath)}
               >
                 Delete Permanently
@@ -416,6 +443,17 @@ export default function Home() {
             setBooks(prev => prev.map(b => b.id === updated.id ? { ...b, ...updated } : b));
           }}
           onViewDiagnostics={(filePath) => handleOpenDiagnosticsForBook(filePath)}
+          onReadBook={(b) => {
+            setDetailBook(null);
+            setReaderBook(b);
+          }}
+        />
+      )}
+
+      {readerBook && (
+        <EpubReaderModal
+          book={readerBook}
+          onClose={() => setReaderBook(null)}
         />
       )}
 

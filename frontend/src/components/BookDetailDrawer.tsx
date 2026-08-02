@@ -22,6 +22,7 @@ interface BookDetailDrawerProps {
   onClose: () => void;
   onSave: (updated: Book) => void;
   onViewDiagnostics?: (filePath: string) => void;
+  onReadBook?: (book: Book) => void;
 }
 
 const GENRES = [
@@ -38,7 +39,7 @@ const STATUS_OPTIONS = [
   { value: 'abandoned', label: '🚫 Abandoned', color: 'var(--accent-red)' },
 ];
 
-export default function BookDetailDrawer({ book, onClose, onSave, onViewDiagnostics }: BookDetailDrawerProps) {
+export default function BookDetailDrawer({ book, onClose, onSave, onViewDiagnostics, onReadBook }: BookDetailDrawerProps) {
   const [genre, setGenre] = useState(book.genre || '');
   const [readingStatus, setReadingStatus] = useState(book.readingStatus || 'unread');
   const [rating, setRating] = useState(book.rating || 0);
@@ -47,6 +48,29 @@ export default function BookDetailDrawer({ book, onClose, onSave, onViewDiagnost
   const [description, setDescription] = useState(book.description || '');
   const [lastReadAt, setLastReadAt] = useState(book.lastReadAt ? book.lastReadAt.split('T')[0] : '');
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefetching, setIsRefetching] = useState(false);
+
+  const handleRefetchMetadata = async () => {
+    setIsRefetching(true);
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/v1/books/${book.id}/refetch-metadata`, {
+        method: 'POST',
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        onSave(updated);
+        alert('Successfully refetched fresh cover art & metadata from Google Books!');
+      } else {
+        const err = await response.json();
+        alert(`Failed to refetch: ${err.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Refetch error:', err);
+      alert('Error contacting server to refetch metadata.');
+    } finally {
+      setIsRefetching(false);
+    }
+  };
 
   // Reset on book change
   useEffect(() => {
@@ -120,6 +144,30 @@ export default function BookDetailDrawer({ book, onClose, onSave, onViewDiagnost
 
         {/* Body */}
         <div className="detail-drawer-body">
+          {/* Quick Read Button */}
+          {onReadBook && (
+            <div className="detail-section" style={{ marginBottom: '1.25rem' }}>
+              <button
+                className="btn-primary"
+                onClick={() => onReadBook(book)}
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
+                  cursor: 'pointer'
+                }}
+              >
+                📖 Open & Read Book
+              </button>
+            </div>
+          )}
 
           {/* Reading Status */}
           <div className="detail-section">
@@ -262,7 +310,10 @@ export default function BookDetailDrawer({ book, onClose, onSave, onViewDiagnost
         </div>
 
         {/* Footer */}
-        <div className="detail-drawer-footer">
+        <div className="detail-drawer-footer" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+          <button className="btn-secondary" onClick={handleRefetchMetadata} disabled={isRefetching} title="Search Google Books API & Open Library to fetch cover image & book details">
+            {isRefetching ? '🔄 Searching...' : '🔄 Auto-Fetch Details'}
+          </button>
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
             {isSaving ? 'Saving...' : '💾 Save Metadata'}
