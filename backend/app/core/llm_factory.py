@@ -49,6 +49,25 @@ class LLMFactory:
                 region_name=region,
                 model_kwargs={"temperature": 0}
             )
+
+        elif target_provider.lower() == "opencode":
+            api_key = settings.OPENCODE_API_KEY or os.getenv("OPENCODE_API_KEY")
+            if not api_key:
+                raise ValueError("OpenCode API key is missing. Please set OPENCODE_API_KEY in backend/.env")
+            
+            base_url = settings.OPENCODE_BASE_URL or os.getenv("OPENCODE_BASE_URL")
+            model_name = settings.OPENCODE_MODEL or os.getenv("OPENCODE_MODEL", "deepseek-v4-flash")
+            
+            kwargs = {
+                "model": model_name,
+                "api_key": api_key,
+                "temperature": 0
+            }
+            if base_url and base_url.strip():
+                kwargs["base_url"] = base_url.strip()
+                
+            return ChatOpenAI(**kwargs)
+
         else:
             raise ValueError(f"Unsupported LLM provider: {target_provider}")
 

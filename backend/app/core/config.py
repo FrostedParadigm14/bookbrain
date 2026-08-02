@@ -6,11 +6,14 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
         # LLM Settings
-    ACTIVE_PROVIDER: str = "gemini" # 'gemini', 'claude', or 'openai'
+    ACTIVE_PROVIDER: str = "opencode" # 'gemini', 'claude', 'openai', or 'opencode'
     GEMINI_API_KEY: Optional[str] = None
     GOOGLE_API_KEY: Optional[str] = None
     GOOGLE_BOOKS_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
+    OPENCODE_API_KEY: Optional[str] = None
+    OPENCODE_BASE_URL: Optional[str] = None
+    OPENCODE_MODEL: str = "deepseek-v4-flash"
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_REGION: str = "us-east-1"
